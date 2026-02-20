@@ -1,0 +1,237 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>CMO City 3D</title>
+<style>
+  body{margin:0;overflow:hidden;background:#000;touch-action:none}
+  #ui{
+    position:fixed;left:10px;top:10px;z-index:9999;
+    background:rgba(0,0,0,.55);color:#fff;font:14px Arial;
+    padding:8px 10px;border-radius:10px;display:flex;gap:8px;align-items:center;
+  }
+  #hint{
+    position:fixed;left:10px;top:56px;z-index:9999;
+    color:#fff;font:13px Arial;opacity:.9
+  }
+  #pad{
+    position:fixed;left:24px;bottom:24px;z-index:9999;
+    width:220px;height:220px;border-radius:50%;
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);
+    touch-action:none;
+  }
+  #stick{
+    position:absolute;left:50%;top:50%;
+    width:90px;height:90px;margin-left:-45px;margin-top:-45px;border-radius:50%;
+    background:rgba(255,255,255,.20);border:1px solid rgba(255,255,255,.28);
+  }
+  #jumpBtn{
+    position:fixed;right:26px;bottom:38px;z-index:9999;
+    width:120px;height:120px;border-radius:50%;
+    background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);
+    color:#fff;font:18px Arial;
+  }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div>스킨:</div>
+  <select id="skin">
+    <option value="cat">고양이</option>
+    <option value="robot">로봇</option>
+    <option value="cube">네온큐브</option>
+  </select>
+  <input id="room" value="cmo-city" style="width:110px"/>
+  <button id="apply">적용</button>
+</div>
+<div id="hint">왼쪽 이동 / 오른쪽 점프 / 3인칭 카메라</div>
+
+<div id="pad"><div id="stick"></div></div>
+<button id="jumpBtn">JUMP</button>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script src="https://unpkg.com/gun/gun.js"></script>
+
+<script>
+/* ===== 3D 기본 ===== */
+const scene = new THREE.Scene();
+
+// 🌆 하늘 배경 (그라데이션)
+const skyGeo = new THREE.SphereGeometry(400,32,32);
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  uniforms:{
+    topColor:{value:new THREE.Color(0x1e3a8a)},
+    bottomColor:{value:new THREE.Color(0x0b1020)}
+  },
+  vertexShader:`varying vec3 vPos;
+    void main(){vPos=position;
+    gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`uniform vec3 topColor;
+    uniform vec3 bottomColor;
+    varying vec3 vPos;
+    void main(){
+      float h=normalize(vPos).y;
+      gl_FragColor=vec4(mix(bottomColor,topColor,max(h,0.0)),1.0);
+    }`
+});
+scene.add(new THREE.Mesh(skyGeo,skyMat));
+
+const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,400);
+camera.position.set(0,5,10);
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff,.35));
+const sun=new THREE.DirectionalLight(0xffffff,1);
+sun.position.set(10,20,10);
+scene.add(sun);
+
+/* ===== 바닥 ===== */
+const ground=new THREE.Mesh(
+  new THREE.PlaneGeometry(500,500),
+  new THREE.MeshStandardMaterial({color:0x111827})
+);
+ground.rotation.x=-Math.PI/2;
+scene.add(ground);
+
+/* ===== 도시 ===== */
+function rand(a,b){return a+Math.random()*(b-a);}
+function addBuilding(x,z){
+  const h=rand(6,40);
+  const b=new THREE.Mesh(
+    new THREE.BoxGeometry(rand(2,7),h,rand(2,7)),
+    new THREE.MeshStandardMaterial({color:0x1f2937})
+  );
+  b.position.set(x,h/2,z);
+  scene.add(b);
+}
+for(let x=-100;x<=100;x+=12){
+  for(let z=-100;z<=100;z+=12){
+    if(Math.abs(x)<12||Math.abs(z)<12)continue;
+    if(Math.random()<.5)addBuilding(x+rand(-1,1),z+rand(-1,1));
+  }
+}
+
+/* ===== 스킨 ===== */
+function makeCat(){
+  const g=new THREE.Group();
+  const head=new THREE.Mesh(
+    new THREE.SphereGeometry(.6,24,24),
+    new THREE.MeshStandardMaterial({color:0x00ff66})
+  );
+  head.position.y=.85;g.add(head);
+  const body=new THREE.Mesh(
+    new THREE.CapsuleGeometry(.35,.6,6,16),
+    new THREE.MeshStandardMaterial({color:0x00ff66})
+  );
+  body.position.y=.2;g.add(body);
+  return g;
+}
+function makeRobot(){
+  const g=new THREE.Group();
+  const body=new THREE.Mesh(
+    new THREE.BoxGeometry(1,1.4,.6),
+    new THREE.MeshStandardMaterial({color:0x8888ff})
+  );
+  body.position.y=.7;g.add(body);
+  return g;
+}
+function makeCube(){
+  return new THREE.Mesh(
+    new THREE.BoxGeometry(1,1,1),
+    new THREE.MeshStandardMaterial({color:0x00ffff,emissive:0x004444})
+  );
+}
+function makeSkin(type){
+  if(type==="robot")return makeRobot();
+  if(type==="cube")return makeCube();
+  return makeCat();
+}
+
+let player=makeSkin(document.getElementById("skin").value);
+scene.add(player);
+
+/* ===== 이동/점프 ===== */
+let pos={x:0,y:0,z:0};
+let vy=0,onGround=true,gravity=-.012;
+let joyX=0,joyY=0;
+
+const pad=document.getElementById("pad");
+const stick=document.getElementById("stick");
+
+function setStick(dx,dy){
+  const r=75;
+  const x=Math.max(-r,Math.min(r,dx));
+  const y=Math.max(-r,Math.min(r,dy));
+  stick.style.transform=`translate(${x}px,${y}px)`;
+  joyX=x/r;joyY=y/r;
+}
+pad.addEventListener("touchmove",e=>{
+  const rect=pad.getBoundingClientRect();
+  const t=e.touches[0];
+  setStick(t.clientX-rect.left-110,t.clientY-rect.top-110);
+});
+pad.addEventListener("touchend",()=>setStick(0,0));
+
+document.getElementById("jumpBtn").addEventListener("touchstart",()=>{
+  if(onGround){vy=.3;onGround=false;}
+});
+
+/* ===== 멀티 ===== */
+const myId=Math.random().toString(36).slice(2);
+const gun=Gun(["https://gun.defucc.me/gun","https://relay.peer.ooo/gun"]);
+let room=gun.get("cmo_city_"+document.getElementById("room").value);
+const others={};
+
+room.map().on((data,id)=>{
+  if(!data||id===myId)return;
+  if(!others[id]){
+    others[id]=makeSkin("cube");
+    scene.add(others[id]);
+  }
+  others[id].position.set(data.x||0,data.y||0,data.z||0);
+});
+
+function sendNet(){
+  room.get(myId).put({x:pos.x,y:pos.y,z:pos.z});
+}
+
+document.getElementById("apply").onclick=()=>{
+  scene.remove(player);
+  player=makeSkin(document.getElementById("skin").value);
+  scene.add(player);
+};
+
+/* ===== 루프 ===== */
+function animate(){
+  requestAnimationFrame(animate);
+
+  pos.x+=joyX*.12;
+  pos.z+=joyY*.12;
+
+  vy+=gravity; pos.y+=vy;
+  if(pos.y<=0){pos.y=0;vy=0;onGround=true;}
+
+  player.position.set(pos.x,pos.y,pos.z);
+
+  camera.position.set(pos.x,4.5,pos.z+8);
+  camera.lookAt(pos.x,1,pos.z);
+
+  sendNet();
+  renderer.render(scene,camera);
+}
+animate();
+
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>
