@@ -1,0 +1,263 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>CMO 3D City Multi</title>
+<style>
+  body{margin:0;overflow:hidden;background:#000}
+  #ui{
+    position:fixed;left:10px;top:10px;z-index:9999;
+    background:rgba(0,0,0,.55);color:#fff;font:14px Arial;
+    padding:10px;border-radius:10px;display:flex;gap:10px;align-items:center;
+  }
+  #ui select,#ui input{font:14px Arial}
+  #hint{
+    position:fixed;left:10px;top:60px;z-index:9999;
+    color:#fff;font:13px Arial;opacity:.9
+  }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div>스킨:</div>
+  <select id="skin">
+    <option value="#00ff66">네온그린</option>
+    <option value="#ff3b3b">레드</option>
+    <option value="#3b82ff">블루</option>
+    <option value="#ffd43b">옐로</option>
+    <option value="#c084fc">퍼플</option>
+    <option value="#ffffff">화이트</option>
+  </select>
+  <input id="room" value="cmo-city" style="width:110px" />
+  <button id="apply">적용</button>
+</div>
+<div id="hint">WASD 이동 / Shift 달리기 / Space 점프 / 마우스 드래그 카메라</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://unpkg.com/gun/gun.js"></script>
+
+<script>
+/* ====== 3D 기본 ====== */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1020);
+scene.fog = new THREE.Fog(0x0b1020, 10, 120);
+
+const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 300);
+camera.position.set(0, 6, 12);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.target.set(0,1,0);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+sun.position.set(8, 18, 8);
+scene.add(sun);
+
+/* ====== 바닥/도로 ====== */
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 400),
+  new THREE.MeshStandardMaterial({color:0x111827, roughness:1})
+);
+ground.rotation.x = -Math.PI/2;
+scene.add(ground);
+
+// 도로 라인
+function addRoadLine(x,z,w,h){
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(w,h),
+    new THREE.MeshBasicMaterial({color:0x2b3246})
+  );
+  m.rotation.x = -Math.PI/2;
+  m.position.set(x, 0.01, z);
+  scene.add(m);
+}
+for(let i=-80;i<=80;i+=20){
+  addRoadLine(i, 0, 6, 220);
+  addRoadLine(0, i, 220, 6);
+}
+
+/* ====== 도시 배경(건물 자동 생성) ====== */
+function rand(a,b){ return a + Math.random()*(b-a); }
+function addBuilding(x,z){
+  const w = rand(2,6), d = rand(2,6), h = rand(4,30);
+  const geo = new THREE.BoxGeometry(w,h,d);
+  const col = new THREE.Color().setHSL(rand(0.55,0.7), rand(0.3,0.6), rand(0.25,0.5));
+  const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.9});
+  const b = new THREE.Mesh(geo, mat);
+  b.position.set(x, h/2, z);
+
+  // 창문 느낌(가짜)
+  const win = new THREE.Mesh(
+    new THREE.BoxGeometry(w*0.9, h*0.95, d*0.9),
+    new THREE.MeshBasicMaterial({color:0x0f172a, transparent:true, opacity:0.35})
+  );
+  win.position.set(0,0,0);
+  b.add(win);
+
+  scene.add(b);
+}
+for(let x=-80;x<=80;x+=10){
+  for(let z=-80;z<=80;z+=10){
+    // 중앙 도로는 비우기
+    if(Math.abs(x) < 10 || Math.abs(z) < 10) continue;
+    if(Math.random() < 0.55) addBuilding(x + rand(-1,1), z + rand(-1,1));
+  }
+}
+
+/* ====== 내 캐릭터(간단 고양이 느낌) ====== */
+function makeCat(colorHex){
+  const g = new THREE.Group();
+
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.6, 24, 24),
+    new THREE.MeshStandardMaterial({color: colorHex})
+  );
+  head.position.y = 0.8;
+  g.add(head);
+
+  const earGeo = new THREE.ConeGeometry(0.22, 0.35, 16);
+  const earMat = new THREE.MeshStandardMaterial({color: colorHex});
+
+  const earL = new THREE.Mesh(earGeo, earMat);
+  earL.position.set(-0.28, 1.25, 0);
+  earL.rotation.z = 0.15;
+  g.add(earL);
+
+  const earR = new THREE.Mesh(earGeo, earMat);
+  earR.position.set(0.28, 1.25, 0);
+  earR.rotation.z = -0.15;
+  g.add(earR);
+
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.35, 0.6, 6, 16),
+    new THREE.MeshStandardMaterial({color: colorHex})
+  );
+  body.position.y = 0.15;
+  g.add(body);
+
+  return g;
+}
+
+let myColor = document.getElementById("skin").value;
+let player = makeCat(myColor);
+scene.add(player);
+
+let pos = {x:0, y:0, z:0};
+let vy = 0;
+let onGround = true;
+const gravity = -0.012;
+
+const keys = {};
+addEventListener("keydown", e=> keys[e.key.toLowerCase()] = true);
+addEventListener("keyup", e=> keys[e.key.toLowerCase()] = false);
+
+/* ====== 멀티(서버 없는 간단 멀티) ====== */
+const myId = Math.random().toString(36).slice(2);
+const gun = Gun([
+  "https://gun.defucc.me/gun",
+  "https://gun.o8.is/gun",
+  "https://relay.peer.ooo/gun"
+]);
+
+let roomName = document.getElementById("room").value.trim() || "cmo-city";
+let room = gun.get("cmo_city_" + roomName);
+
+const others = {}; // id -> { mesh, last }
+function ensureOther(id, colorHex){
+  if(others[id]) return others[id].mesh;
+  const m = makeCat(colorHex || "#ff3b3b");
+  scene.add(m);
+  others[id] = {mesh:m, last: Date.now()};
+  return m;
+}
+
+room.map().on((data,id)=>{
+  if(!data || id === myId) return;
+  const m = ensureOther(id, data.c);
+  m.position.set(data.x||0, data.y||0, data.z||0);
+  others[id].last = Date.now();
+});
+
+// 오래된 유저 정리(끊김 대비)
+setInterval(()=>{
+  const now = Date.now();
+  for(const id in others){
+    if(now - others[id].last > 8000){
+      scene.remove(others[id].mesh);
+      delete others[id];
+    }
+  }
+}, 2000);
+
+let netTick = 0;
+function sendNet(){
+  netTick++;
+  if(netTick % 3 !== 0) return;
+  room.get(myId).put({x:pos.x, y:pos.y, z:pos.z, c: myColor, t: Date.now()});
+}
+
+/* ====== 스킨/방 적용 버튼 ====== */
+document.getElementById("apply").onclick = ()=>{
+  // 스킨
+  myColor = document.getElementById("skin").value;
+  scene.remove(player);
+  player = makeCat(myColor);
+  scene.add(player);
+
+  // 방
+  roomName = document.getElementById("room").value.trim() || "cmo-city";
+  room = gun.get("cmo_city_" + roomName);
+};
+
+/* ====== 업데이트 ====== */
+function step(){
+  const running = keys["shift"];
+  const sp = running ? 0.16 : 0.09;
+
+  if(keys["w"]) pos.z -= sp;
+  if(keys["s"]) pos.z += sp;
+  if(keys["a"]) pos.x -= sp;
+  if(keys["d"]) pos.x += sp;
+
+  if(keys[" "] && onGround){
+    vy = 0.28;
+    onGround = false;
+  }
+
+  vy += gravity;
+  pos.y += vy;
+
+  if(pos.y <= 0){
+    pos.y = 0; vy = 0; onGround = true;
+  }
+
+  player.position.set(pos.x, pos.y, pos.z);
+  controls.target.set(pos.x, 1, pos.z);
+
+  sendNet();
+}
+
+/* ====== 렌더 루프 ====== */
+function animate(){
+  requestAnimationFrame(animate);
+  step();
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener("resize", ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
