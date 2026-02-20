@@ -1,0 +1,341 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>CMO City Mobile</title>
+<style>
+  body{margin:0;overflow:hidden;background:#000;touch-action:none}
+
+  /* 세로일 때 회전 안내 */
+  #rotate{
+    position:fixed;inset:0;z-index:20000;
+    display:none;align-items:center;justify-content:center;flex-direction:column;
+    background:#000;color:#fff;font:18px Arial;gap:10px;text-align:center;
+  }
+  #rotate .big{font-size:26px;letter-spacing:2px}
+
+  /* 시작화면: 배경이 보이게(반투명+블러) */
+  #startScreen{
+    position:fixed;inset:0;z-index:15000;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.35);
+    backdrop-filter: blur(6px);
+  }
+  #startScreen .logo{
+    font:900 64px Arial;letter-spacing:10px;color:#fff;
+    text-shadow:0 0 24px rgba(0,255,200,.9);
+    margin-bottom:18px;
+  }
+  #startScreen .sub{color:rgba(255,255,255,.85);font:14px Arial;margin-bottom:22px}
+  #startBtn{
+    padding:16px 56px;border:0;border-radius:999px;
+    background:#00ffcc;color:#001014;font:800 20px Arial;
+  }
+
+  /* UI */
+  #ui{
+    position:fixed;left:10px;top:10px;z-index:9999;
+    background:rgba(0,0,0,.55);color:#fff;font:14px Arial;
+    padding:8px 10px;border-radius:10px;display:flex;gap:8px;align-items:center;
+  }
+  #hint{
+    position:fixed;left:10px;top:56px;z-index:9999;
+    color:#fff;font:13px Arial;opacity:.9
+  }
+
+  /* 모바일 조이스틱: 크게 */
+  #pad{
+    position:fixed;left:24px;bottom:24px;z-index:9999;
+    width:220px;height:220px;border-radius:50%;
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);
+    touch-action:none;
+  }
+  #stick{
+    position:absolute;left:50%;top:50%;
+    width:90px;height:90px;margin-left:-45px;margin-top:-45px;border-radius:50%;
+    background:rgba(255,255,255,.20);border:1px solid rgba(255,255,255,.28);
+    transform:translate(0,0);
+  }
+  #jumpBtn{
+    position:fixed;right:26px;bottom:38px;z-index:9999;
+    width:120px;height:120px;border-radius:50%;
+    background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);
+    color:#fff;font:18px Arial;
+  }
+</style>
+</head>
+<body>
+
+<div id="rotate">
+  <div class="big">📱 가로로 돌려줘!</div>
+  <div>가로 모드가 조작이 훨씬 편해 😎</div>
+</div>
+
+<div id="ui">
+  <div>스킨:</div>
+  <select id="skin">
+    <option value="#00ff66">네온그린</option>
+    <option value="#ff3b3b">레드</option>
+    <option value="#3b82ff">블루</option>
+    <option value="#ffd43b">옐로</option>
+    <option value="#c084fc">퍼플</option>
+    <option value="#ffffff">화이트</option>
+  </select>
+  <input id="room" value="cmo-city" style="width:110px"/>
+  <button id="apply">적용</button>
+</div>
+<div id="hint">왼쪽 조이스틱 이동 / 오른쪽 점프 / (3인칭 카메라)</div>
+
+<div id="pad"><div id="stick"></div></div>
+<button id="jumpBtn">JUMP</button>
+
+<div id="startScreen">
+  <div class="logo">CMO</div>
+  <div class="sub">City • 3D • Multi • Skin</div>
+  <button id="startBtn">PLAY</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script src="https://unpkg.com/gun/gun.js"></script>
+
+<script>
+/* ====== 회전 안내 ====== */
+const rotateEl = document.getElementById("rotate");
+function checkOrientation(){
+  const portrait = window.innerHeight > window.innerWidth;
+  rotateEl.style.display = portrait ? "flex" : "none";
+}
+addEventListener("resize", checkOrientation);
+checkOrientation();
+
+/* ====== 3D 기본 ====== */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1020);
+scene.fog = new THREE.Fog(0x0b1020, 12, 140);
+
+const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 400);
+camera.position.set(0, 6, 12);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, .35));
+const sun = new THREE.DirectionalLight(0xffffff, 1);
+sun.position.set(10, 22, 10);
+scene.add(sun);
+
+/* ====== 바닥/도로 ====== */
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(500,500),
+  new THREE.MeshStandardMaterial({color:0x111827, roughness:1})
+);
+ground.rotation.x = -Math.PI/2;
+scene.add(ground);
+
+function addRoad(x,z,w,h,color){
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(w,h),
+    new THREE.MeshBasicMaterial({color})
+  );
+  m.rotation.x = -Math.PI/2;
+  m.position.set(x, 0.01, z);
+  scene.add(m);
+}
+for(let i=-120;i<=120;i+=24){
+  addRoad(i, 0, 8, 320, 0x202845);
+  addRoad(0, i, 320, 8, 0x202845);
+}
+
+/* ====== 도시(건물) ====== */
+function rand(a,b){return a+Math.random()*(b-a);}
+function addBuilding(x,z){
+  const w=rand(2.5,7), d=rand(2.5,7), h=rand(6,38);
+  const geo = new THREE.BoxGeometry(w,h,d);
+  const col = new THREE.Color().setHSL(rand(0.55,0.72), rand(0.25,0.6), rand(0.22,0.5));
+  const mat = new THREE.MeshStandardMaterial({color:col, roughness:0.95});
+  const b = new THREE.Mesh(geo, mat);
+  b.position.set(x, h/2, z);
+  scene.add(b);
+
+  // 네온 느낌 창문(가짜)
+  if(Math.random()<0.4){
+    const glow = new THREE.Mesh(
+      new THREE.BoxGeometry(w*0.92, h*0.96, d*0.92),
+      new THREE.MeshBasicMaterial({color:0x0f172a, transparent:true, opacity:0.35})
+    );
+    b.add(glow);
+  }
+}
+for(let x=-120;x<=120;x+=12){
+  for(let z=-120;z<=120;z+=12){
+    if(Math.abs(x)<14 || Math.abs(z)<14) continue; // 도로 비우기
+    if(Math.random()<0.55) addBuilding(x+rand(-1,1), z+rand(-1,1));
+  }
+}
+
+/* ====== 캐릭터(고양이 느낌) ====== */
+function makeCat(color){
+  const g=new THREE.Group();
+  const head=new THREE.Mesh(
+    new THREE.SphereGeometry(.6, 24, 24),
+    new THREE.MeshStandardMaterial({color})
+  );
+  head.position.y=.85; g.add(head);
+
+  const earGeo=new THREE.ConeGeometry(.22, .35, 16);
+  const earMat=new THREE.MeshStandardMaterial({color});
+
+  const earL=new THREE.Mesh(earGeo, earMat);
+  earL.position.set(-.28, 1.30, 0); earL.rotation.z=.15; g.add(earL);
+  const earR=new THREE.Mesh(earGeo, earMat);
+  earR.position.set(.28, 1.30, 0); earR.rotation.z=-.15; g.add(earR);
+
+  const body=new THREE.Mesh(
+    new THREE.CapsuleGeometry(.35, .6, 6, 16),
+    new THREE.MeshStandardMaterial({color})
+  );
+  body.position.y=.18; g.add(body);
+  return g;
+}
+
+let myColor = document.getElementById("skin").value;
+let player = makeCat(myColor);
+scene.add(player);
+
+/* ====== 이동/점프 (모바일) ====== */
+let pos={x:0,y:0,z:0};
+let vy=0, onGround=true, gravity=-.012;
+let joyX=0, joyY=0;
+
+const pad=document.getElementById("pad");
+const stick=document.getElementById("stick");
+
+function setStick(dx,dy){
+  const r=75; // 조작 범위(클수록 부드러움)
+  const x=Math.max(-r, Math.min(r, dx));
+  const y=Math.max(-r, Math.min(r, dy));
+  stick.style.transform=`translate(${x}px,${y}px)`;
+  joyX = x/r; joyY = y/r;
+}
+
+pad.addEventListener("touchstart",e=>{e.preventDefault();},{passive:false});
+pad.addEventListener("touchmove",e=>{
+  e.preventDefault();
+  const rect=pad.getBoundingClientRect();
+  const t=e.touches[0];
+  setStick(t.clientX-rect.left-110, t.clientY-rect.top-110);
+},{passive:false});
+pad.addEventListener("touchend",()=>setStick(0,0));
+
+document.getElementById("jumpBtn").addEventListener("touchstart",(e)=>{
+  e.preventDefault();
+  if(onGround){vy=.30; onGround=false;}
+},{passive:false});
+
+/* ====== 3인칭 카메라(뒤에서 따라옴) ====== */
+function updateCamera(){
+  // 플레이어 뒤쪽에서 따라오기
+  camera.position.x = pos.x;
+  camera.position.y = 4.8;
+  camera.position.z = pos.z + 9.5;
+  camera.lookAt(pos.x, 1.2, pos.z);
+}
+
+/* ====== 멀티(간단) ====== */
+const myId=Math.random().toString(36).slice(2);
+const gun=Gun(["https://gun.defucc.me/gun","https://relay.peer.ooo/gun","https://gun.o8.is/gun"]);
+
+let roomName=document.getElementById("room").value.trim() || "cmo-city";
+let room=gun.get("cmo_city_"+roomName);
+const others={}; // id -> {mesh,last}
+
+function ensureOther(id, color){
+  if(others[id]) return others[id].mesh;
+  const m = makeCat(color || "#ff3b3b");
+  scene.add(m);
+  others[id]={mesh:m,last:Date.now()};
+  return m;
+}
+
+room.map().on((data,id)=>{
+  if(!data || id===myId) return;
+  const m = ensureOther(id, data.c);
+  m.position.set(data.x||0, data.y||0, data.z||0);
+  others[id].last=Date.now();
+});
+
+// 오래된 것 제거
+setInterval(()=>{
+  const now=Date.now();
+  for(const id in others){
+    if(now-others[id].last>9000){
+      scene.remove(others[id].mesh);
+      delete others[id];
+    }
+  }
+},2000);
+
+let netTick=0;
+function sendNet(){
+  netTick++;
+  if(netTick%3!==0) return;
+  room.get(myId).put({x:pos.x,y:pos.y,z:pos.z,c:myColor,t:Date.now()});
+}
+
+/* ====== 스킨/방 적용 ====== */
+document.getElementById("apply").onclick=()=>{
+  myColor=document.getElementById("skin").value;
+  scene.remove(player);
+  player=makeCat(myColor);
+  scene.add(player);
+
+  roomName=document.getElementById("room").value.trim()||"cmo-city";
+  room=gun.get("cmo_city_"+roomName);
+};
+
+/* ====== 시작화면 ====== */
+let started=false;
+document.getElementById("startBtn").onclick=()=>{
+  started=true;
+  const s=document.getElementById("startScreen");
+  s.style.opacity="0";
+  setTimeout(()=>s.style.display="none", 250);
+};
+
+/* ====== 루프 ====== */
+function step(){
+  if(!started) return; // 시작 전에는 멈춤
+
+  const running = false; // 모바일은 기본 속도만 (원하면 버튼으로 추가해줄게)
+  const sp = running ? 0.16 : 0.11;
+
+  pos.x += joyX * sp * 2;
+  pos.z += joyY * sp * 2;
+
+  vy += gravity;
+  pos.y += vy;
+  if(pos.y<=0){pos.y=0;vy=0;onGround=true;}
+
+  player.position.set(pos.x,pos.y,pos.z);
+  updateCamera();
+  sendNet();
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  step();
+  renderer.render(scene,camera);
+}
+animate();
+
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+  checkOrientation();
+});
+</script>
+</body>
+</html>
